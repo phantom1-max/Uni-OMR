@@ -1,0 +1,8 @@
+{
+  "name": "Uni-OMR",
+  "description": "AI-powered OMR answer key scanner and student sheet auto-grader with on-picture visual overlays and instant scorecards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
