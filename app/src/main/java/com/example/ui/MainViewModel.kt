@@ -256,24 +256,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Process master answer key bitmap (from camera, gallery, or preset).
      */
-    fun processMasterKeyBitmap(bitmap: Bitmap) {
+    fun processMasterKeyBitmap(bitmap: Bitmap) = processMasterKeyBitmaps(listOf(bitmap))
+
+    /**
+     * Combine all selected pages into one ordered image so the vision model can read
+     * question numbers across page boundaries in a single analysis.
+     */
+    fun processMasterKeyBitmaps(bitmaps: List<Bitmap>) {
         val exam = _selectedExam.value ?: return
+        if (bitmaps.isEmpty()) return
         viewModelScope.launch {
             _isProcessing.value = true
-            _processingStatus.value = "Analyzing master key with Gemini Multimodal AI..."
-            _masterKeyBitmap.value = bitmap
+            _processingStatus.value = "Preparing ${bitmaps.size} answer-key page(s)..."
 
             try {
+                val targetWidth = 1400
+                val scaledPages = bitmaps.map { page ->
+                    val ratio = targetWidth.toFloat() / page.width.coerceAtLeast(1)
+                    Bitmap.createScaledBitmap(
+                        page,
+                        targetWidth,
+                        (page.height * ratio).toInt().coerceAtLeast(1),
+                        true
+                    )
+                }
+                val totalHeight = scaledPages.sumOf { it.height }
+                require(totalHeight <= 16000) { "The selected pages are too large. Please select fewer or smaller images." }
+                val combined = Bitmap.createBitmap(targetWidth, totalHeight, Bitmap.Config.ARGB_8888)
+                val canvas = android.graphics.Canvas(combined)
+                var top = 0f
+                scaledPages.forEach { page ->
+                    canvas.drawBitmap(page, 0f, top, null)
+                    top += page.height
+                }
+                _masterKeyBitmap.value = combined
+                _processingStatus.value = "Analyzing all ${bitmaps.size} page(s) with Gemini..."
+
                 val filePath = SampleSheetUtil.saveBitmapToFile(
                     getApplication(),
-                    bitmap,
+                    combined,
                     "master_${exam.id}.png"
                 )
-
-                val result = visionService.analyzeMasterKey(bitmap, exam.totalQuestions)
+                val result = visionService.analyzeMasterKey(combined, exam.totalQuestions)
                 _masterQuestions.value = result.masterQuestions
 
-                // Update exam entity with file path and extracted key JSON
                 val keyJson = JSONObject()
                 result.masterQuestions.forEach { mq ->
                     keyJson.put(mq.questionNumber.toString(), mq.correctOption)
@@ -285,9 +311,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 repository.updateExam(updatedExam)
                 _selectedExam.value = updatedExam
-
                 _currentScreen.value = AppScreen.MASTER_KEY_REVIEW
-
             } catch (e: Exception) {
                 Log.e(TAG, "Master key analysis failed", e)
                 _errorMessage.value = "Master key analysis error: ${e.localizedMessage}"
