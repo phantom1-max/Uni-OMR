@@ -1,0 +1,40 @@
+name: Publish APK Release
+
+on:
+  workflow_run:
+    workflows: ["Android APK"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Uni-OMR-debug-apk
+          path: release
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Publish APK to Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          APK="$(find release -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          if gh release view v0.1.0 --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload v0.1.0 "$APK" --repo "$REPO" --clobber
+          else
+            gh release create v0.1.0 "$APK" \
+              --repo "$REPO" \
+              --title "Uni-OMR v0.1.0" \
+              --notes "Debug APK build from the latest successful Android APK workflow."
+          fi
