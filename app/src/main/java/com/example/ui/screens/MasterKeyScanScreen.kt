@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DocumentScanner
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Science
@@ -42,6 +44,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,19 +74,26 @@ fun MasterKeyScanScreen(
 ) {
     BackHandler { onNavigateBack() }
     val scope = rememberCoroutineScope()
+    val selectedPages = remember { mutableStateListOf<Bitmap>() }
 
-    // Android Zero-permission Photo Picker for gallery
+    // Pick several answer-key pages in one gallery operation.
     val galleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
             scope.launch {
-                val bitmap = viewModel.decodeBitmapFromUri(uri)
-                if (bitmap != null) {
-                    viewModel.processMasterKeyBitmap(bitmap)
+                uris.forEach { uri ->
+                    viewModel.decodeBitmapFromUri(uri)?.let { selectedPages.add(it) }
                 }
             }
         }
+    }
+
+    // Capture one page at a time; users can repeat this to build a multi-page key.
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        bitmap?.let { selectedPages.add(it) }
     }
 
     Scaffold(
@@ -116,11 +127,7 @@ fun MasterKeyScanScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Info Banner
-                Surface(
-                    color = Color.White.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
+                Surface(color = Color.White.copy(alpha = 0.12f), shape = RoundedCornerShape(20.dp)) {
                     Row(
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -128,7 +135,7 @@ fun MasterKeyScanScreen(
                         Icon(Icons.Default.Translate, contentDescription = null, tint = CorrectGreen, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Multilingual & Handwriting Ready (Bubbles / Ticks / Letters)",
+                            "Supports bubbles, ticks and handwritten answers",
                             color = Color.White,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -136,48 +143,32 @@ fun MasterKeyScanScreen(
                     }
                 }
 
-                // OMR Viewfinder Frame
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.92f)
                         .weight(1f)
                         .padding(vertical = 20.dp)
-                        .border(
-                            width = 2.5.dp,
-                            color = CorrectGreen,
-                            shape = RoundedCornerShape(16.dp)
-                        )
+                        .border(2.5.dp, CorrectGreen, RoundedCornerShape(16.dp))
                         .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
                         .testTag("omr_alignment_frame"),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(24.dp)
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         Box(
-                            modifier = Modifier
-                                .size(68.dp)
-                                .background(CorrectGreen.copy(alpha = 0.15f), CircleShape),
+                            modifier = Modifier.size(68.dp).background(CorrectGreen.copy(alpha = 0.15f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                Icons.Default.DocumentScanner,
-                                contentDescription = null,
-                                tint = CorrectGreen,
-                                modifier = Modifier.size(36.dp)
-                            )
+                            Icon(Icons.Default.DocumentScanner, contentDescription = null, tint = CorrectGreen, modifier = Modifier.size(36.dp))
                         }
-
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "Position Master Sheet Inside Frame",
+                            if (selectedPages.isEmpty()) "Add your answer-key pages" else "${selectedPages.size} page(s) selected",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Answers can be bubbled, ticked by hand (✓), or written as letters (A, B, C, D).",
+                            "Use the camera to capture pages one by one, or select multiple images from your gallery.",
                             color = Color.White.copy(alpha = 0.7f),
                             fontSize = 13.sp,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -185,23 +176,21 @@ fun MasterKeyScanScreen(
                     }
                 }
 
-                // Action Controls
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = { cameraLauncher.launch(null) },
+                            modifier = Modifier.weight(1f).testTag("capture_camera_btn"),
+                            colors = ButtonDefaults.buttonColors(containerColor = IndigoPrimary),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Camera")
+                        }
                         Button(
                             onClick = {
-                                // For emulator or device gallery picking
-                                galleryLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
+                                galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             },
                             modifier = Modifier.weight(1f).testTag("upload_gallery_btn"),
                             colors = ButtonDefaults.buttonColors(containerColor = IndigoPrimary),
@@ -209,56 +198,64 @@ fun MasterKeyScanScreen(
                         ) {
                             Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("From Gallery")
-                        }
-
-                        Button(
-                            onClick = {
-                                // Load realistic master key matching the exam preset
-                                val preset = try {
-                                    ExamPreset.valueOf(exam?.presetType ?: "SOF_OLYMPIAD")
-                                } catch (e: Exception) {
-                                    ExamPreset.SOF_OLYMPIAD
-                                }
-                                val bitmap = SampleSheetUtil.createSampleMasterKeyBitmap(
-                                    title = exam?.title ?: "MASTER ANSWER KEY",
-                                    preset = preset,
-                                    totalQuestions = exam?.totalQuestions ?: 30
-                                )
-                                viewModel.processMasterKeyBitmap(bitmap)
-                            },
-                            modifier = Modifier.weight(1f).testTag("load_sample_master_key_btn"),
-                            colors = ButtonDefaults.buttonColors(containerColor = CorrectGreen),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Use Sample Key")
+                            Text("Gallery")
                         }
                     }
 
-                    // Direct test with JEE sample
+                    if (selectedPages.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedButton(
+                                onClick = { selectedPages.clear() },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Clear pages")
+                            }
+                            Button(
+                                onClick = {
+                                    viewModel.processMasterKeyBitmaps(selectedPages.toList())
+                                },
+                                modifier = Modifier.weight(1f).testTag("analyze_master_pages_btn"),
+                                colors = ButtonDefaults.buttonColors(containerColor = CorrectGreen),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Analyze ${selectedPages.size} page(s)", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
                     OutlinedButton(
                         onClick = {
+                            val preset = try {
+                                ExamPreset.valueOf(exam?.presetType ?: "SOF_OLYMPIAD")
+                            } catch (e: Exception) {
+                                ExamPreset.SOF_OLYMPIAD
+                            }
                             val bitmap = SampleSheetUtil.createSampleMasterKeyBitmap(
-                                title = "JEE MAIN OFFICIAL ANSWER KEY",
-                                preset = ExamPreset.JEE_MAIN,
+                                title = exam?.title ?: "MASTER ANSWER KEY",
+                                preset = preset,
                                 totalQuestions = exam?.totalQuestions ?: 30
                             )
                             viewModel.processMasterKeyBitmap(bitmap)
                         },
-                        modifier = Modifier.fillMaxWidth().testTag("use_jee_sample_key_btn"),
+                        modifier = Modifier.fillMaxWidth().testTag("load_sample_master_key_btn"),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Load JEE Main Master Key Sample")
+                        Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Use Sample Key")
                     }
                 }
             }
 
-            if (isProcessing) {
-                ProcessingOverlay(statusText = processingStatus)
-            }
+            if (isProcessing) ProcessingOverlay(statusText = processingStatus)
         }
     }
 }
